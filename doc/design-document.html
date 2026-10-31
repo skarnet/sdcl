@@ -1,0 +1,558 @@
+<html>
+  <head>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="dark light" />
+    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+    <meta http-equiv="Content-Language" content="en" />
+    <title>sdcl: SDCL design document</title>
+    <meta name="Description" content="sdcl: SDCL design document" />
+    <meta name="Keywords" content="sdcl SDCL design document" />
+    <!-- <link rel="stylesheet" type="text/css" href="//skarnet.org/default.css" /> -->
+  </head>
+<body>
+
+<p>
+<a href="index.html">sdcl</a><br />
+<a href="//skarnet.org/software/">Software</a><br />
+<a href="//skarnet.org/">skarnet.org</a>
+</p>
+
+<h1> SDCL design document </h1>
+
+<h2 id="goals"> Fundamental goals </h2>
+
+<p>
+ The SDCL language is meant to:
+</p>
+
+<ul>
+ <li> Be written, read and understood by humans, not automation. It must be friendly for humans to read, write and edit. This means:
+  <ul>
+   <li> Its syntax must be clear and concise, and must not have gratuitous annoyances. </li>
+   <li> Its semantics must be intuitive and represent the <em>human</em> understanding of a service </li>
+   <li> If the <tt>sdcl</tt> tool has to be more complex in order to parse the syntax or to transform the human view of a service
+into something that is actionable by a service manager, so be it &mdash; that's exactly what it's for. </li>
+  </ul>
+ </li>
+ <li> Modelize, in a generic way, a set of services running on a system, under a service manager. The following invariants must be true:
+  <ul>
+   <li> A service definition can be provided without knowing the details of of the service manager that runs it, or the system it is running on. </li>
+   <li> The administrators can input information about their system (the <em>policy file</em>) without modifying the service definitions. </li>
+   <li> The <tt>sdcl</tt> tool takes a policy file and a set of service definitions, and outputs a set of files and directories that is
+suitable for the chosen service manager. </li>
+  </ul>
+ </li>
+</ul>
+
+<h2 id="consequences"> Specifications </h2>
+
+<ul>
+ <li> The specification for the SDCL language is described
+<a href="specification.html">here</a>. For now, it is just a draft. The grammar
+will be formalized <em>last</em>, because we want the freedom to modify it as
+we iterate on the spec and find what is most comfortable. </li>
+</ul>
+
+<h2 id="internal"> Internal representation </h2>
+
+<p>
+ The original plan was to have the <tt>sdcl</tt> command, aka the <em>frontend</em>,
+read a set of files written in the SDCL language and process them into an internal
+representation that would then be serialized and given as input to the <em>backends</em>,
+i.e. the programs that output service files for various service managers.
+</p>
+
+<p>
+ After thinking long about it, this does not feel like the optimal design.
+</p>
+
+<ul>
+ <li> Most of the transformations are performed by the backends. </li>
+ <li> Having the frontend parse a set of SDCL files, process it into an
+internal representation, and serialize it to text format, only for the
+backends to process that text format and perform their own transformations
+and outputs seems wasteful:
+  <ul>
+   <li> It requires designing <em>two</em> text formats rather than one. </li>
+   <li> It turns the frontend into a preprocessor with little added value, since
+not many transformations are performed. Even if the frontend does e.g. dependency
+checking between services, since the backends read text input that has to be untrusted,
+they have to perform the dependency checking <em>again</em>. </li>
+   <li> It requires every backend to process text into its own internal representation,
+incurring more burden for backend writers. </li>
+  </ul>
+</ul>
+
+<p>
+ Consequently, there will <em>not</em> be a serialized internal representation format
+for SDCL. Instead, the frontend will be a <em>library</em>, that the backends will
+use to parse SDCL files directly into their memory, which will make it easier
+for them to access service data in a convenient representation and transform it.
+</p>
+
+<p>
+ The library functions will be documented <a href="libsdcl/">here</a>.
+</p>
+
+<p>
+ Various language bindings can be added later, so backends can be written in
+other languages than C.
+</p>
+
+<hr />
+
+<h2 id="transcripts"> Transcripts of design discussions </h2>
+
+<h3 id="framapad"> Initial brainstorming pad between navi and I </h3>
+
+<pre>
+SDCL draft
+
+I. Organization of the files:
+
+    - do we want to have one file per service (which is risky if we want to extend the language to a system description: not everything is a service -> we don't want unit files) or one entry point including all the configured service files ?
+      + one file per service: services are autonomous. (Can we make them autonomous without relying on natural file boundaries ?)
+      + one global entrypoint: the system is consistent, the description translates to a deterministic (?) global state
+      + can we do both? autonomous services ("service foobar { ... }" in one file + a global entrypoint reading everything?
+like:
+    system toto {
+        #includedir "/etc/sdcl/definitions"
+        }
+and /etc/sdcl/definitions/foobar would be: service foobar { blah blah }
+
+navi: i'm not a fan of the direct #include, imo it's better to have service files by themselves in some path-like dirs, then later if we want system definitions, we can let them refer to the defined services:
+    e.g. a service /etc/sdcl/service/foo, then the system definition can have `system nya { enable foo; }` or smth
+
+&rarr; yeah I do want to have service files by themselves, but I like the idea of them being includable. If you have syntactic sugar like `system nya { include foo; } then why not, but it means that `foo` is searched in a path for service definitions, and that include is a reserved keyword. (`enable`means something else to me: "start the service at boot time")
+My suggestion was to use something like https://skarnet.org/software/tipidee/tipidee-config-preprocess.html
+which uses purely syntactic substitutions, so the main processor doesn't have to know anything about inclusions.
+You could run sdcl on a service file directly which only has `service foo { blah blah; }` and it would work and simply output the service definition; but if you run sdcl on the system definition then it reads everything you have included.
+Basically I think we agree on the principle, the difference is in how it's implemented: you want the include function to be a keyword in the language while I think preprocessing does the job.
+
+
+
+
+- What structure for a service (or otherwise unit)?
+  + key = value sounds good at the basic level
+  + we might need nesting for categories, but maybe we don't need it at all in a given service definition
+  + I want the quoting of value to be predictable and as simple as possible
+  + quoting is necessary because at least the "command" key will have spaces and such
+  + no special character shenanigans like with ExecStart=, wysiwyg except for quoting
+  + would like to get execline-like quoting, it's predictable, but not powerful enough
+    * yes I want to be able to embed spaces or anything in values, so:
+        command="foobar arg1 \"argument 2\" arg3" or something like that. I don't want a second quoting 
+character, unless you have strong arguments in favor of it
+        navi: having dealt with quoted command strings in openrc, they were the main reason i went to posix for arrays, so a suggestion: wouldn't a notation for command arrays help?
+        shell like: command=( foobar arg1 "argument 2" arg3 )
+        or brackets are more commonly used: command=[ foobar arg1 "argument 2" arg3 ]
+
+&rarr; tbh I don't like this, because this is quoting under another name. These are two different ways of escaping spaces, and what do you do if a command is named foobar] ? (not likely, obviously, but I would like it to be possible). All you're ultimately doing is having two types of quoting, which I think is a bad idea.
+
+
+  + need to be able to define variables in a service (or even globally!)
+  + can't have the power of a shell, so need to reimplement variable substitution
+       navi: variable substitution could happen like those shell-like (but explicitly not-shell) env-esk files, like
+       profile.env, where you can use $VAR or ${VAR} but that is it, nothing more, no splitting
+
+ &rarr; agreed, that's what I had in mind
+
+  + what is a semantic unit? a line? do we want lines to be embeddable in values (in which case the parser is more difficult to write but it's ok)?
+  + I want to avoid Python-like and yaml-like *and* shell-like nightmares with the syntax of a line, be as flexible as possible :
+
+service foobar { command = "foobar" }
+should be as valid as
+service foobar
+{
+    command = foobar
+}
+or anything of the kind - but that means answering the question: what is our parsing unit exactly? is that a line? a sequence of commands? etc.
+In execline, I gave newline the exact same semantics as any other whitespace (except to end comments) but that's only possible because execline is 1-dimensional.
+SDCL is not 1-dimensional, so what should we do with newlines in order to be the most flexible possible for the user *and* still have unambiguous semantics?
+
+III. Internal representation
+
+sdcl processes a set of SDCL files and pipes a stream of data to the backend. What does that stream of data look like? What can we factorize for the backends?
+Do we want to specify and publish the protocol between the frontend and the backends? It needs to be binary, because if it's json-like, we might as well not have any frontend at all and have the backends read the files directly.
+navi: even if we went with a text format, the advantage of having the text format be simple and guaranteed valid over parsing the file directly is already there, transforming the user friendly but hard to parse file into a line based structured format has benefits: easier to debug than a binary format, easier to write backends than just having the backends parse the files directly, syntax errors can be caught before backends are called
+regardless of if we do binary or text though, if we have frontends and backends, and want new service managers to be able to provide their own backends, then we need to publish the protocol
+
+ &rarr; agreed, but that then means defining *two* text formats: the user-friendly source one, and the machine-friendly (more or less) protocol between frontend and backends. That's basically double the work, which I'm fine with *if* it's worth it. Would it be? Despite being user-friendly, I think we can make an SDCL definition pretty close to a natural 1:1 representation of a service, at least for OpenRC and s6; there would be no need for a big global compilation pass that involves transposing matrixes and resolving dependencies like there is in e.g. s6-rc-compile. (I mean we can resolve service deps, but the backends would have to do so as well, they cannot fully trust what is given to them.) So, thinking about it, unless we find rock-solid arguments to have a text protocol, I'm leaning more and more towards a library.
+ i was imagining the backend format to be basically a flattened line-based of the frontend, it is true that in overall the process should be as simple as possible, so maybe it won't matter much (and tbh i don't think the frontend should try to solve deps at all)
+
+Is that better? Should I just provide a C API to read the files into an in-memory representation, and "backends" would just be individual executables linked against libsdcl?
+navi: a c api runs the risk of being opinionated, specially for folks that use different languages for their service managers, but it's an option i like more than piping binary structures around i think, to me it goes:
+    piping structured text lines &gt; libsdcl &gt; piping binary structures
+ &rarr; opinionated in what way? do you mean establishing policy on what language is "accepted"? That's what bindings are for. People can write bindings for any language they want, and we can even upstream them.
+ Between writing a C binding for a language and getting access to a trusted IR and parsing a structured format to then have to do *some* checks, I'm not sure what the biggest amount of effort is.
+ i meant in api design, and what api is used from c can make bindings a lot easier or a lot harder, so by going with a library, we'd have to take some care on that not just from a c perspective but from an ffi one too, though i'm not that experienced with ffis
+
+IV. List of basic keys we want to implement: command=, directory=, uid=, etc.
+
+Some of them are tricky! e.g. I would like to have uid=toto be *static* i.e. determined at build time and stored as a fixed uid, and also user=toto be *dynamic* i.e. toto is looked up at run time and the service changes its uid to toto's. (systemd mixes both, is unclear about it, and it's one of the pitfalls)
+navi: openrc does also use the same variable for both, but we avoid the (confusing?) pitfalls of systemd by requiring that a numeric uid is fully parsed, aka, systemd had a problem usernames like 5foo because it starts with a number (technically not allowed by posix), and lennard iirc blamed the user for using such username -> yes and it was clear bad faith from Lennart, I remember the thread, it was ridiculous
+in there, openrc would attempt to parse it as a number, fail (since it wasn't parsed as a whole), and then lookup the user as a username, by going like this, i never saw anyone getting confused to what works or doesn't
+but this makes it so that usernames are always dynamic, imo this is somewhat less confusing to users, but nothing that clear docs wouldn't solve if we go with two fields, one static, one dynamic
+ &rarr; yeah, I don't expect static uids to be used often tbh, it was just an example of bad key specification in systemd that I want to avoid in SDCL.
+
+I'm wary of having a large list of keys without nesting. It can soon become as extensive as systemd's syntax. If we have no nesting (and even if we do), we need policies on how to handle unrecognized keys.
+</pre>
+
+<h3 id="irc"> Follow-up discussion on IRC </h3>
+
+<pre>
+ &lt;skarnet&gt; ok I have a tab opened on the framapad to take notes if needed
+ &lt;skarnet&gt; the first thing I'd like to address (because I think it's simpler) is: how would you convince me that structured text lines are better than an in-memory IR and libsdcl?
+ &lt;skarnet&gt; from my pov, since there aren't any real transformations happening in the frontend (all the transformations are backend), converting SDCL to structured lines has no real value, especially if there's no dependency check upfront and/or everything has to be done in the backends anyway
+ &lt;skarnet&gt; what real value can the frontend provide? imho it's just the parsing, providing the data in a form that's easily consumable
+ &lt;skarnet&gt; and what is more easily consumable than direct in-memory stuff?
+ &lt;navi&gt; i just feel like it's a bit more free for backends, but it's not even a strong preference if we make the libscdl api as simple as possible
+ &lt;navi&gt; if someone wants to use python or some other language, not having to write bindings is a benefit, and i think it only applies here because what we do is so simple anyway
+ &lt;skarnet&gt; yeah - I mean, worst case I'll write a serializer
+ &lt;skarnet&gt; but I don't think bindings will be that hard
+ &lt;skarnet&gt; people have written a lot of bindings for libdbus and libdbus is orders of magnitude more complex than what we'll have
+ &lt;navi&gt; but dbus itself is also an order of magnitude more complex
+ &lt;skarnet&gt; yeah because its design is... let's say suboptimal
+ &lt;navi&gt; yep
+ &lt;skarnet&gt; ok so I'll go with libsdcl for now
+ &lt;skarnet&gt; next, SDCL syntax, I still have a lot of undecided
+ &lt;skarnet&gt; I do like the idea of one big stream of data for the whole system rather than multiple files
+ &lt;skarnet&gt; like, cat /etc/sdcl/definitions/* | sdcl
+ &lt;skarnet&gt; or something
+ &lt;navi&gt; i suppose a question is, who is expected to use sdcl
+ &lt;skarnet&gt; so every service can have its individual autonomous def
+ &lt;skarnet&gt; well, people who want to generate service defs in a given format
+ &lt;navi&gt; for the common user that doesn't care much, i expected distros to do so in their packaging
+ &lt;skarnet&gt; sdcl --type s6 or sdcl --type openrc
+ &lt;navi&gt; and ship the generated results, or is that not what you had in mind?
+ &lt;skarnet&gt; yeah, distros would be the primary users
+ &lt;navi&gt; distros handle things per package, things would likely never go across one service at a time with that model
+ &lt;skarnet&gt; one service at a time means there's a lot of embedded policy
+ &lt;skarnet&gt; which is manageable if we have options
+ &lt;skarnet&gt; sdcl --policyfile=/etc/sdcl/distro-policies &lt; servicedef.sdcl
+ &lt;skarnet&gt; servicedef can be generic and the policy file generates a service for the distro's setup
+ &lt;navi&gt; what i see is e.g. gentoo going `src_compile() { sdcl -t openrc &lt; "${S}/dist/service.sdcl" &gt; "${D}/etc/init.d/service"; }`
+ &lt;navi&gt; that works
+ &lt;skarnet&gt; yeah that gentoo approach works
+ &lt;skarnet&gt; but I also like the idea of being able to generate a whole set of services or a whole system in one go
+ &lt;skarnet&gt; e.g. for the initial install
+ &lt;skarnet&gt; I think it's possible to have both
+ &lt;navi&gt; if the policy file can encode the destination, it would even help multi-init-system distros to be able to list multiple backends at once
+ &lt;navi&gt; sdcl -t s6 -t openrc &lt; ...
+ &lt;skarnet&gt; yeah
+ &lt;skarnet&gt; I'm not sure I'd support two outputs at once but
+ &lt;skarnet&gt; calling the command twice is easy
+ &lt;navi&gt; it just get messy if every time you have to change the `&gt; output`
+ &lt;navi&gt; but yeha
+ &lt;skarnet&gt; for i in s6 openrc ; do sdcl -t $i &lt; servicedefs &gt; output.$i
+ &lt;skarnet&gt;  ; done
+ &lt;skarnet&gt; ok so we need to think about what goes in the policy file
+ &lt;skarnet&gt; not necessarily rn, I'll write stuff to the framapad later
+ &lt;skarnet&gt; but I think it's a good idea
+ &lt;navi&gt; "for the initial install", distros go with packages for those too
+ &lt;navi&gt; i don't see distros using sdcl for base-system stuff
+ &lt;skarnet&gt; that's where my "system support" idea comes in
+ &lt;navi&gt; the streaming option would work but then we have to make sdcl itself "install" the files
+ &lt;navi&gt; since you can't just `&gt; service.initd` if it's printing out 15 services and more
+ &lt;skarnet&gt; it can produce a staging area
+ &lt;skarnet&gt; like my run-image in s6-l-i
+ &lt;skarnet&gt; that the admin can then copy to /
+ &lt;skarnet&gt; distros currently do their base images by hand but that's not flexible
+ &lt;skarnet&gt; what if it was easy to switch between openrc-init, s6-l-i or something else
+ &lt;skarnet&gt; sdcl --system -t $type &lt; init-def.sdcl
+ &lt;navi&gt; things like openrc's bootmisc, binfmt, cgroup, and other init scripts are not so trivial
+ &lt;navi&gt; and trying to put those in a generic, non-shell format would for openrc make the experience worse
+ &lt;skarnet&gt; Do these really have to be specified as separate services?
+ &lt;skarnet&gt; can't they be a part of the generic openrc init?
+ &lt;skarnet&gt; maybe some of them (like cgroup) could be separated
+ &lt;navi&gt; the cgroup service isn't scheduled for containers, nor binfmt
+ &lt;navi&gt; bootmisc is except on prefix and wsl
+ &lt;navi&gt; openrc after setting up /run, doens't have one central "init" step
+ &lt;navi&gt; most of everything is a service, setting up hostname, re-mounting / as rw, etc
+ &lt;skarnet&gt; yeah so we cn abstract stage 1 (mounting /run) and not much more
+ &lt;skarnet&gt; but
+ &lt;skarnet&gt; we could have a "generic early openrc service package"
+ &lt;skarnet&gt; that we can refine and tailor over time
+ &lt;skarnet&gt; same with "generic early s6 service package"
+ &lt;navi&gt; those services come with openrc itself
+ &lt;skarnet&gt; yeah and that's fine
+ &lt;navi&gt; and we really push distros to improve and use the upstream versions where possible
+ &lt;skarnet&gt; what I'm saying is
+ &lt;navi&gt; so what i just mean, is that they can't be encoded in sdcl except by maybe "enable"
+ &lt;navi&gt; but since openrc already ships them enabled, that doesn't help much
+ &lt;skarnet&gt; that's the kind of thing I'm thinking of when I say "we need to plan for extensions beyond just service defs"
+ &lt;skarnet&gt; I think SDCL could have an option in system { } that says "enable the generic service package provided by the backend"
+ &lt;skarnet&gt; which would translate to that in openrc
+ &lt;skarnet&gt; and we can refine what it means over time
+ &lt;skarnet&gt; as we abstract more services
+ &lt;navi&gt; what i think that is that maybe sdcl shouldn't try to encode a whole system state, without integration with the package management that can't really be whollistic
+ &lt;skarnet&gt; I agree it's difficult
+ &lt;skarnet&gt; and that's certainly not the first thing to do
+ &lt;skarnet&gt; but ultimately I think it should, because else it will never be fully generic
+ &lt;navi&gt; rather some other system, florist for portage, nix for nixos, and so on, do that (which they already do) and call onto sdcl to generate service defs
+ &lt;skarnet&gt; hm
+ &lt;navi&gt; aka i think thinking about system defs in sdcl is the wrong layer
+ &lt;skarnet&gt; you think it should be restricted to individual service defs?
+ &lt;navi&gt; yea
+ &lt;skarnet&gt; but services need integration with the distro's way of doing things, do you think the policy file would be enough?
+ &lt;navi&gt; it's already how distros handle things, even distros that support multiple init systems
+ &lt;navi&gt; we reduce the work for supporting them a lot by not having to re-write the service defs over and over
+ &lt;skarnet&gt; e.g. for an s6 system I need to know where the log directories are stored, where the scandir is, etc.
+ &lt;navi&gt; that'd be on the policy file
+ &lt;skarnet&gt; yeah
+ &lt;navi&gt; for openrc, we'd have thing like "which logger to use"
+ &lt;skarnet&gt; what loggers do you support?
+ &lt;navi&gt; anything that takes lines on stdin :V
+ &lt;skarnet&gt; ok, so piping to a logging program, yeah I can do that
+ &lt;skarnet&gt; I just don't want to support logging to files ^^'
+ &lt;skarnet&gt; so there would be two specs
+ &lt;navi&gt; and, by having sdcl strict like this, if we need a full system thing later, it can be built on top rather easily, sysdcl
+ &lt;skarnet&gt; yeah
+ &lt;skarnet&gt; but that means
+ &lt;navi&gt; but if we don't really, then we're not carrying baggage, or if a distro doesn't need it, etc
+ &lt;skarnet&gt; what it makes simpler in the SDCL language itself
+ &lt;skarnet&gt; it adds in complexity to the policy file
+ &lt;skarnet&gt; e.g.
+ &lt;skarnet&gt; if I want to specify what logger to use
+ &lt;skarnet&gt; I can say: logger="s6-log t s100000 /var/log/$service"
+ &lt;skarnet&gt; and $service needs to be interpreted
+ &lt;skarnet&gt; so that's a spec for the service files and also a spec for the policy file
+ &lt;skarnet&gt; which is fine
+ &lt;navi&gt; didn't we already want the env-like var substitution though?
+ &lt;skarnet&gt; yeah but that's not at the same level
+ &lt;navi&gt; so the piping for that will be there already
+ &lt;skarnet&gt; service files are written by service implementors
+ &lt;skarnet&gt; the policy file are written by distro devs
+ &lt;navi&gt; yea
+ &lt;skarnet&gt; yeah the code will already be there
+ &lt;skarnet&gt; but we need to list what variables will be substituted
+ &lt;skarnet&gt; and it won't be the same variables ^^'
+ &lt;navi&gt; both files can share the syntax, and differ only on what values can be set
+ &lt;skarnet&gt; I'm not sure they can share the syntax
+ &lt;navi&gt; if we're processing one file at a time, something like $service makes sense
+ &lt;skarnet&gt; they can share part of it like var substitution
+ &lt;navi&gt; to exist in both
+ &lt;skarnet&gt; but a service def is more complex than a policy file
+ &lt;skarnet&gt; policy file is a only a series of key-value I think
+ &lt;skarnet&gt; a service can be more involved
+ &lt;navi&gt; it is, but it ends up being mostly assignments, so why not have policy be a subset?
+ &lt;skarnet&gt; I mean sure we can reuse the same parser
+ &lt;skarnet&gt; but the syntax in the policy file must be restricted I think
+ &lt;skarnet&gt; I don't want people to define services in the policy file XD
+ &lt;skarnet&gt; that said
+ &lt;skarnet&gt; thinking about it
+ &lt;navi&gt; yeah i agree, i have a bit of faith in distro devs to not do that, but disallowing it is a good ideal
+ &lt;skarnet&gt; it could just be an inclusion like I was thinking for the system defs
+ &lt;skarnet&gt; I wanted sdcl to be able to read a whole state
+ &lt;navi&gt; basically logically prepend the policy file to the service to be processed?
+ &lt;skarnet&gt; yeah
+ &lt;navi&gt; yea, i like that
+ &lt;navi&gt; works well because it's a single service at a time
+ &lt;skarnet&gt; policy { something } service foobar { something }
+ &lt;navi&gt; yea
+ &lt;skarnet&gt; even if it's several services it works
+ &lt;skarnet&gt; policy { something } service foobar { something } service bazqux { something }
+ &lt;navi&gt; if it's serveral services, policy would have to delay expanding vars
+ &lt;navi&gt; and be re-interpreted for each service
+ &lt;skarnet&gt; yeah
+ &lt;skarnet&gt; that's doable since it's a special block
+ &lt;skarnet&gt; it's the point of having it be a special case rather than some generic assignments
+ &lt;navi&gt; i suppose this would make stuff like nfs, udev,rpc, and such, convenient, they each ship 3~4 services
+ &lt;navi&gt; so 3~4 files become 1
+ &lt;skarnet&gt; yes
+ &lt;skarnet&gt; and also
+ &lt;skarnet&gt; for s6, one "service" can translate to several, oneshots and longruns
+ &lt;navi&gt; oh, so we really need the -o dir flag
+ &lt;skarnet&gt; so in any case there's no 1:1 mapping between "logical services" and the end output
+ &lt;navi&gt; then i'm convinced on the "prepend policy, multiple services allowed"
+ &lt;skarnet&gt; yes, -o dir
+ &lt;navi&gt; and disallow redefining blocks so that upstreams don't try to modify policy
+ &lt;skarnet&gt; the policy block will be unique
+ &lt;navi&gt; i think every block should be unique maybe?
+ &lt;navi&gt; or is there a point to have two service blocks for the same service
+ &lt;skarnet&gt; good question
+ &lt;skarnet&gt; maybe you want to allow a distro to have generic settings that they then refine in later files?
+ &lt;skarnet&gt; idk
+ &lt;skarnet&gt; service foo { some defs } service bar { something } service foo { other defs } -> concatenate defs?
+ &lt;navi&gt; this comes close to having distros define services in policy
+ &lt;navi&gt; what i can see being useful is an unnabed service block serving as a base
+ &lt;navi&gt; not just for distros, but for upstreams too, `service { common_stuff } service foo { add_things } service nya { other_things }` maybe?
+ &lt;skarnet&gt; service { default values }?
+ &lt;navi&gt; yeah
+ &lt;skarnet&gt; I see the value of it but the question becomes...
+ &lt;skarnet&gt; how far do we want to get into OOP and inheritance
+ &lt;navi&gt; i'd say either one level of default values, or nothing at all
+ &lt;skarnet&gt; that is valid if everything in a service block is a simple key=value assignment
+ &lt;skarnet&gt; but we might need something more complex
+ &lt;skarnet&gt; e.g. in openrc you can redefine start()
+ &lt;navi&gt; redefining start for a service that start a daemon is highly unrecommend
+ &lt;navi&gt; disencouraged
+ &lt;skarnet&gt; should we not support it at all?
+ &lt;navi&gt; but we do have start_pre() and start_post()
+ &lt;navi&gt; where you're supposed to put shell code in
+ &lt;skarnet&gt; I hate start_pre and start_post
+ &lt;skarnet&gt; because these are other services, disguised
+ &lt;navi&gt; for s6, that'd be two oneshot services scheduled before and after i think?
+ &lt;skarnet&gt; yeah
+ &lt;skarnet&gt; I really don't want to have hidden nested services
+ &lt;navi&gt; i mean maybe, but logically they're often together, "i need to set up some dirs for this daemon"
+ &lt;navi&gt; people aren't thinking of that as separate services
+ &lt;navi&gt; they're thinking of it as a preparation step
+ &lt;skarnet&gt; and what is start_post
+ &lt;skarnet&gt; "once a daemon is ready, do X"
+ &lt;skarnet&gt; what is that if not another service
+ &lt;navi&gt; basically but rarely used, the mechanism is generic and stop_post() is what it's used for
+ &lt;navi&gt; "daemon stopped, clean up stuff it leaves behind"
+ &lt;skarnet&gt; yeah, cleanup
+ &lt;navi&gt; and stop_pre()
+ &lt;skarnet&gt; stop_pre is weird
+ &lt;navi&gt; which is "your config is broken, refusing to stop" or smth like that
+ &lt;skarnet&gt; huh?
+ &lt;skarnet&gt; wdym?
+ &lt;navi&gt; some daemons have a check config option
+ &lt;navi&gt; and services often check that before stopping
+ &lt;navi&gt; so that it wouldn't fail to start
+ &lt;skarnet&gt; um
+ &lt;skarnet&gt; check the config before stopping?
+ &lt;skarnet&gt; when the service was *running* until half a second ago?
+ &lt;navi&gt; stop_pre() {
+ &lt;navi&gt;  # If this is a restart, check to make sure the user's config isn't busted before we stop the running daemon.
+ &lt;navi&gt;  if [ "${RC_CMD}" = "restart" ]; then
+ &lt;navi&gt;   checkconfig || return $?
+ &lt;navi&gt;  fi
+ &lt;navi&gt; }
+ &lt;navi&gt; opendkim's service
+ &lt;navi&gt; the service is running, but changing a config and restarting is common behaviour
+ &lt;skarnet&gt; I understand the idea but it's a terrible pattern
+ &lt;skarnet&gt; the checkconfig should be done by the user after any config change
+ &lt;navi&gt; sshd does that too and it saved a few people a lot of headache
+ &lt;skarnet&gt; that's why tipidee-config exists
+ &lt;skarnet&gt; tipidee's config file is compiled, it's a cdb
+ &lt;navi&gt; it should, i'm just mentioning the common pattern
+ &lt;skarnet&gt; this not only has the advantage of being a read-only mapping which saves a page for every instance
+ &lt;skarnet&gt; but also tipidee-config serves as a validator
+ &lt;navi&gt; systemd's Exec{Start,Stop}{Pre,Post}, and so on
+ &lt;skarnet&gt; if the text file is busted, no new config is created
+ &lt;navi&gt; i'm not denying that's better
+ &lt;skarnet&gt; and I don't understand why other software doesn't do it
+ &lt;navi&gt; but hey we're working with software in the wild
+ &lt;skarnet&gt; yeah
+ &lt;navi&gt; can't just go "no but don't do that" to people, sadly
+ &lt;skarnet&gt; and if stop_pre fails the checkconfig
+ &lt;skarnet&gt; should we stop the stopping?
+ &lt;navi&gt; basically
+ &lt;skarnet&gt; so you're saying
+ &lt;skarnet&gt; destructors should be able to fail
+ &lt;navi&gt; nothing that people check that only on restart
+ &lt;navi&gt; but since restart is encoded as stop + start, this happens
+ &lt;navi&gt; if the user says "stop" then it stops
+ &lt;skarnet&gt; hmm
+ &lt;navi&gt; (otherwise we'd have non-stopping services on shutdown too which yikes)
+ &lt;skarnet&gt; so, is that an artefact of openrc's way of encoding restarts?
+ &lt;navi&gt; using stop_pre for that is, yes
+ &lt;skarnet&gt; because then I'd rather have a "restart_pre"
+ &lt;navi&gt; but i still think encoding restarts as stop+start is the right thing
+ &lt;skarnet&gt; I don't, not for longruns
+ &lt;skarnet&gt; because then you're restarting all the dependencies
+ &lt;skarnet&gt; and it's much heavier
+ &lt;skarnet&gt; if you want stop+start you should say stop+start
+ &lt;navi&gt; only needsme dependencies
+ &lt;skarnet&gt; which is still a lot
+ &lt;navi&gt; but even if we skipped the deps on the 'restart' command (which is doable), from the service perspective, the restart would always be clean
+ &lt;navi&gt; aka it calls the whole stop() functions, then the whole start() functions
+ &lt;navi&gt; instead of some restart() that might skip things
+ &lt;skarnet&gt; yeah that's valid
+ &lt;skarnet&gt; I'm just realizing
+ &lt;skarnet&gt; I don't know how to encode a stop() function in s6
+ &lt;skarnet&gt; I can only send signals
+ &lt;skarnet&gt; more than that and I need a custom script for stop()
+ &lt;skarnet&gt; I can do service cleanup after death, that's a finish script
+ &lt;navi&gt; for sdcl, openrc, systemd, and dinit, let you put code in stop{,_pre,_post}
+ &lt;skarnet&gt; stop_post is the down script of a oneshot
+ &lt;skarnet&gt; where start_pre is the up script
+ &lt;skarnet&gt; that's not the same thing as a cleanup that happens every time the process dies
+ &lt;navi&gt; so s6 (and runit ig) would struggle a bit with start_post and stop_pre
+ &lt;skarnet&gt; runit would
+ &lt;skarnet&gt; s6 would just create an additional oneshot service to go with the main longrun
+ &lt;skarnet&gt; ah no
+ &lt;skarnet&gt; sorry
+ &lt;skarnet&gt; hm
+ &lt;skarnet&gt; so
+ &lt;skarnet&gt; start_post would be a dependent service
+ &lt;skarnet&gt; running right after the main longrun is ready
+ &lt;skarnet&gt; stop_pre... could be the down script of the dependent service, I suppose
+ &lt;skarnet&gt; but that means I need to not ignore when that down transition fails
+ &lt;skarnet&gt; and I don't like that
+ &lt;navi&gt; ig that's the complicated bit of one common format
+ &lt;skarnet&gt; yeah, there have to be adjustments in the backends, that's fine
+ &lt;navi&gt; either that, or say it's UB/IB
+ &lt;skarnet&gt; tbh
+ &lt;skarnet&gt; I'd rather have a restart_pre
+ &lt;skarnet&gt; and in openrc it can be implemented as stop_pre
+ &lt;navi&gt; openrc's backend can printout the RC_CMD check
+ &lt;navi&gt; but can systemd and dinit i wonder
+ &lt;skarnet&gt; nothing prevents the backend from adding a check in the output
+ &lt;skarnet&gt; if systemd or dinit can't tell between a stop and a restart... well, we'll see when we get there
+ &lt;navi&gt; systemd has ExecStop and ExecStopPost
+ &lt;navi&gt; though for them, _pre, would just be prepending to ExecStop
+ &lt;skarnet&gt; yes
+ &lt;skarnet&gt; brb
+ &lt;navi&gt; oki
+ &lt;navi&gt; for the whole restart bit, do you also not stop rev. deps on a full stop()?
+ &lt;skarnet&gt; back
+ &lt;skarnet&gt; on a full stop(), yes of course, but that's the difference between just restarting the process (at the supervisor level, without involving the service manager) and invoking the service manager with the full dependency engine and modifying the global state
+ &lt;skarnet&gt; so for me "restart" means "s6-svc -r $service" and "stop+start" means "s6-rc stop $service &amp;&amp; s6-rc start $service" and the latter is much heavier than the former
+ &lt;navi&gt; i'm just thinking if (and if so, how) i'd change that for openrc; systemd has PartOf to declare dependencies which should be restarted on restart
+ &lt;navi&gt; (though it's unclear how they handle non-restart stops)
+ &lt;skarnet&gt; maybe you wouldn't have to change much
+ &lt;skarnet&gt; just special case restart in supervise-daemon to just kill the process
+ &lt;skarnet&gt; I don't have a restart for oneshots, it's also stop+start
+ &lt;navi&gt; the only change i'd have to make is checking cmd == restart in openrc-run.c, and skip the stops
+ &lt;navi&gt; but a) i bet a non-zero amount of people would want it back, and b) would be a breaking change, handle with care
+ &lt;navi&gt; supervise-daemon needs no changes, only change is "don't involve the depgraph", but as mentioned, need to handle with care
+ &lt;skarnet&gt; yeah
+ &lt;skarnet&gt; and I'm realizing in order to implement stop commands, I need to add a "stop script" repository and address it in s6-frontend
+ &lt;skarnet&gt; if a custom stop script is defined, invoke it, else just send a signal
+ &lt;navi&gt; so if i were to make it an option, it'd probably have a deptype like systemd telling it to do it
+ &lt;navi&gt; but well, that's for future me a bit, bigger problems atm
+ &lt;skarnet&gt; yeah we don't need to solve everything now
+ &lt;skarnet&gt; I just need to submit a draft spec :D
+ &lt;navi&gt; your example config syntax is atm very close to scfg btw
+ &lt;skarnet&gt; I have no idea what scfg is and I was just using that syntax as a placeholder
+ &lt;skarnet&gt; it's the next thing I wanted to talk about
+ &lt;skarnet&gt; what syntax do we want, what would be friendliest
+ &lt;navi&gt; https://codeberg.org/emersion/scfg there's a abnf spec and all
+ &lt;skarnet&gt; oh nice
+ &lt;skarnet&gt; ugh
+ &lt;skarnet&gt; https://codeberg.org/emersion/libscfg/src/branch/master/include/scfg.h
+ &lt;skarnet&gt; scfg_parse_file() reads a FILE * so stdio, and the IR looks like a bunch of malloced cells
+ &lt;skarnet&gt; I'm NOT using that :P
+ &lt;navi&gt; yea, that's the bit i don't quite like about it
+ &lt;skarnet&gt; the syntax itself looks clean enough
+ &lt;navi&gt; tho it seemed simple to do a minimal allocating streaming parser, fwiw
+ &lt;skarnet&gt; I'm annoyed with newlines though
+ &lt;skarnet&gt; that's the part I'm not sure about
+ &lt;navi&gt; oh right, you wanted something agnostic to them
+ &lt;skarnet&gt; I'm not sure
+ &lt;skarnet&gt; if we're agnostic to newlines it means directives need a terminator
+ &lt;skarnet&gt; and I'm not sure about that
+ &lt;skarnet&gt; idk what's the friendliest
+ &lt;navi&gt; i think that ends up kinda deep in subjective territory
+ &lt;navi&gt; some people like to do oneliners
+ &lt;navi&gt; some really prefer not to
+ &lt;navi&gt; fwiw most non-imperative formats do limit themselves to lines
+ &lt;skarnet&gt; the shell can do both: foo=bar\nbz=qux OR foo=bar; baz=qux and that ties my brain in knots
+ &lt;navi&gt; well nix comes to mind as a declarative format that doesn't, but it's also a full functional programming format too
+ &lt;navi&gt; yeah, unescaped \n in shell is the same as ;
+ &lt;navi&gt; for imperative formats, that is common
+ &lt;skarnet&gt; could it be the same for a declarative format?
+ &lt;navi&gt; it could, i'm just noting observations
+ &lt;skarnet&gt; I meant: would it be a good idea? I don't find that particular bit of the shell especially intuitive, but it's worth considering
+ &lt;navi&gt; for programming languages i find it intuitive tbh, it's mostly ommiting ; at eol and i think python also does it?
+ &lt;navi&gt; for declarative languages, i'm not sure
+ &lt;navi&gt; it's quite a difficult question to me
+ &lt;skarnet&gt; My focus is flickering, I'm getting tired (I slept last night, but my circadian rhythm is always wobbly) - I'll take a break and have lunch, after which I'll either be able to brain more or I'll straight go napping
+ &lt;navi&gt; sure, rest well
+</pre>
+
+</body>
+</html>

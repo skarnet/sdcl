@@ -1,0 +1,109 @@
+<html>
+  <head>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="dark light" />
+    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+    <meta http-equiv="Content-Language" content="en" />
+    <title>sdcl: the sdcl library interface</title>
+    <meta name="Description" content="sdcl: the sdcl library interface" />
+    <meta name="Keywords" content="sdcl service definition configuration language library frontend" />
+    <!-- <link rel="stylesheet" type="text/css" href="//skarnet.org/default.css" /> -->
+  </head>
+<body>
+
+<p>
+<a href="../">sdcl</a><br />
+<a href="//skarnet.org/software/">Software</a><br />
+<a href="//skarnet.org/">skarnet.org</a>
+</p>
+
+<h1> The <tt>sdcl</tt> library interface </h1>
+
+<h2> General information </h2>
+
+<p>
+ <tt>libsdcl</tt> is the library providing the necessary functions
+to parse and process a set of SDCL files, and then access their data
+in a convenient in-memory format.
+</p>
+
+<h2> Compiling </h2>
+
+<ul>
+ <li> Make sure the sdcl headers are visible in your header search path. </li>
+ <li> Use <tt>#include &lt;sdcl/sdcl.h&gt;</tt> </li>
+</ul>
+
+<h2> Linking </h2>
+
+<ul>
+ <li> Make sure the sdcl library, as well as the skalibs libraries,
+are visible in your library search path. </li>
+ <li> Link against <tt>-lsdcl</tt> <tt>-lskarnet</tt> </li>.
+ <li> If you're linking dynamically, you may need to add <tt>-lpthread</tt>,
+and/or other <tt>-lfoo</tt> arguments depending on how your libc is organized. </li>
+ <li> If you're using <tt>pkg-config</tt> or equivalent, it should take care
+of all these annoyances for you. </li>
+</ul>
+
+<h2> Programming </h2>
+
+<h3> Parsing a set of SDCL files </h3>
+
+<h4> <code>int sdcl_parse (sdcl_context_t *ctx, char const *files, size_t n, unsigned int verbosity, char const *progname, unsigned int flags) </code> </h4>
+
+<ul>
+ <li> <em>ctx</em> is a pointer to an already declared (preferrably in the stack) <tt>sdcl_context_t</tt> object,
+that must be initialized to the <tt>SDCL_CONTEXT_ZERO</tt> value. </li>
+ <li> <em>files</em> is an array of <em>n</em> file paths (relative or absolute)
+that are the SDCL files you want to read. </li>
+ <li> <em>verbosity</em> tells the function how verbose you want it to be:
+  <ul>
+   <li> <tt>0</tt> means it will only print fatal errors to stderr </li>
+   <li> <tt>1</tt> means it will print fatal errors and warnings to stderr </li>
+   <li> <tt>2</tt> means it will print more details to stderr about what it is doing </li>
+   <li> <tt>3</tt> will print a wild amount of details </li>
+   <li> <tt>4</tt> or more is for debugging. </li>
+  </ul> </li>
+ <li> <em>progname</em> is the name to prepend all printed messages with. It should be
+your executable's name. </li>
+ <li> <em>flags</em> is a bitfield. You can OR the following flags:
+  <ul>
+   <li> <tt>SDCL_PARSE_FLAG_FATAL</tt>: print "fatal" error messages on issues such as
+system call failure or syntax error, and exit the program </li>
+   <li> <em>(other flags can be defined)</em> </li>
+  </ul> </li>
+ <li> On success, the function returns <tt>0</tt>, and all the data is stored in the
+<em>ctx</em> context. </li>
+ <li> On failure, the function returns a nonzero error code.
+  <ul>
+   <li> If the error code is positive, it is an <em>errno</em>: the underlying system
+had a problem. The printed messages, if any, said that the error was fatal. There isn't
+much for you to do but exit the program. </li>
+   <li> If the error code is negative, it means that the data fed to <tt>sdcl_parse</tt>
+is invalid. The code can be:
+    <ul>
+     <li> <tt>SDCL_PARSE_RETURN_SYNERR</tt>: syntax error. </li>
+     <li> <tt>SDCL_PARSE_RETURN_DEPCYCLE</tt>: a cycle was detected in the service dependencies. </li>
+     <li> <em>(other error codes can be defined)</em> </li>
+    </ul> </li>
+  </ul> </li>
+</ul>
+
+<h3> Accessing the data after parsing </h3>
+
+<h4> <code>size_t sdcl_services_count (sdcl_context_t const *ctx) </code> </h4>
+
+<ul>
+ <li> Returns the number of services defined in <em>ctx</em>. </li>
+</ul>
+
+<h4> <code>sdcl_service_t const *sdcl_services (sdcl_context_t const *ctx) </code> </h4>
+
+<ul>
+ <li> Returns a pointer to an array of services defined in <em>ctx</em>. The length of
+the array can be obtained by a call to <tt>sdcl_services_count()</tt>. </li>
+</ul>
+
+</body>
+</html>

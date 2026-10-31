@@ -1,0 +1,9 @@
+/*.pc
+*.o
+*.lo
+/*.a.xyzzy
+/*.so.xyzzy
+/config.mak
+/src/include/sdcl/config.h
+/sdcl
+/sdcl-*

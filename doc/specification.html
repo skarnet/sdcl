@@ -1,0 +1,441 @@
+<html>
+  <head>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="dark light" />
+    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+    <meta http-equiv="Content-Language" content="en" />
+    <title>sdcl: the SDCL specification</title>
+    <meta name="Description" content="sdcl: the SDCL specification" />
+    <meta name="Keywords" content="sdcl SDCL specification spec" />
+    <!-- <link rel="stylesheet" type="text/css" href="//skarnet.org/default.css" /> -->
+  </head>
+<body>
+
+<p>
+<a href="index.html">sdcl</a><br />
+<a href="//skarnet.org/software/">Software</a><br />
+<a href="//skarnet.org/">skarnet.org</a>
+</p>
+
+<h1> The SDCL specification </h1>
+
+<h2 id="version"> Versioning </h2>
+
+<p>
+ For simplicity purposes, the version number of the SDCL specification is
+tied to the major number of the sdcl package (which means, the first two
+numbers of the 4-number version). So, this specification defines version
+
+<strong>0.0</strong>
+
+of the SDCL format.
+</p>
+
+<h2 id="definitions"> Basic definitions </h2>
+
+<ul>
+ <li> <strong>SDCL</strong>, in capital letters, is the name of the language the
+service definitions are written in. </li>
+ <li> <strong><tt>sdcl</tt></strong>, in lowercase, is the name of the tool that
+reads SDCL and outputs a set of files directly usable by a service manager. </li>
+ <li> An <strong>SDCL file</strong> is a text file containing a series of
+<strong>sections</strong>, which are the primary entity in the language.
+  <ul>
+   <li> The <tt>sdcl</tt> tool can be given one or several files to read, or
+an input stream; it does not use file boundaries as logical boundaries. The
+only boundaries it uses are sections. </li>
+   <li> Of course, file boundaries are beneficial for users and for package
+managers, so it is recommended to use one file per service; every service
+definition section goes into its own file. </li>
+  </ul> </li>
+</ul>
+
+<h2 id="syntax"> Syntax </h2>
+
+<h3 id="lineformat"> Line format </h3>
+
+<ul>
+ <li> A <em>quoted string</em> begins with an unescaped <tt>"</tt> (doublequote) and ends with an unescaped <tt>"</tt>. </li>
+ <li> Characters can be escaped inside a quoted string by prepending them with a <tt>\</tt> (backslash).
+Their meaning may then change. </li>
+ <li> Some characters have a special meaning in a quoted string, and <em>lose</em> it when escaped:
+  <ul>
+   <li> <tt>\</tt> (backslash) escapes the following character. </li>
+   <li> <tt>"</tt> (doublequote) ends the quoted string. </li>
+   <li> <tt>$</tt> (dollar) starts a variable substitution. </li>
+   <li> An escaped newline is entirely ignored. This makes it possible for users to split long lines. </li>
+  </ul> </li>
+ <li> Some characters have no special meaning in a quoted string, but <em>gain</em> one when escaped:
+  <ul>
+   <li> Escaped <tt>n</tt> means literal newline. </li>
+   <li> Escaped <tt>t</tt> means literal tab. </li>
+  </ul> </li>
+ <li> A line is the sequence of characters between two unescaped newline characters.
+The first line of a file is the sequence of characters up until the first unescaped newline. </li>
+ <li> <em>Whitespace</em> is defined as spaces, tabs and carriage returns. </li>
+ <li> If a line starts with a <tt>#</tt> (sharp) character, or any amount of line whitespace then a <tt>#</tt> character,
+it is considered a comment, and entirely ignored. The next newline character ends the comment, even if it
+is preceded by a backslash or anything else. </li>
+ <li> Inside a line, <em>words</em> are sequences of non-whitespace characters, separated by any
+amount of whitespace. </li>
+ <li> A quoted string is always treated as one single word, even if it embeds whitespace. This is the
+main point of quoting. </li>
+ <li> Some semantic elements, such as directive definitions, will be considered separate words even if
+they're not separated by whitespace. This is on a case by case basis and dependent on the semantic element,
+see below. </li>
+ <li> Example: <tt>start="foo bar" qux</tt> &rarr; divides into three words, <tt>start=</tt>, <tt>foo bar</tt>,
+and <tt>qux</tt>, because the <tt>start=</tt> directive definition always ends at the <tt>=</tt> (equals) sign. </li>
+</ul>
+
+<h3 id="semantic"> Semantic elements </h3>
+
+<h4 id="section"> Section </h4>
+
+<ul>
+ <li> A section is said to be <em>global</em> if it appears at the top level, and <em>local</em>
+if it appears inside of another section. </li>
+ <li> A <em>section</em> is made of the following:
+  <ul>
+   <li> The section type:
+    <ul>
+     <li> <tt>policy</tt> </li>
+     <li> <tt>default_service</tt> </li>
+     <li> <tt>variables</tt> </li>
+     <li> <tt>service</tt> </li>
+     <li> <tt>dependencies</tt> (local-only, inside a <tt>service</tt>) </li>
+     <li> <tt>logging</tt> (local-only, inside <tt>default_service</tt> or a <tt>service</tt> </li>
+    </ul> </li>
+   <li> An optional <em>section name</em>, for <tt>service</tt> sections only. </li>
+   <li> A <tt>{</tt> (opening curly brace) character </li>
+   <li> Zero or more <em>directive definitions</em> or nestable <em>sections</em> </li>
+   <li> A <tt>}</tt> (closing curly brace) character. </li>
+  </ul> </li>
+ <li> Every global section is unique except <tt>service</tt>. </li>
+</ul>
+
+<h5 id="policy"> Policy </h5>
+
+<p>
+ The <tt>policy</tt> section defines the operating system's policies: how it invokes the
+service manager, where the service files are stored, etc. It is meant to be written and
+maintained by <em>distribution packagers</em> and should reside in a place that is not
+accessible by individual services; we advise creating a <em>policy file</em> just to
+hold the <tt>policy</tt> section.
+</p>
+
+<p>
+ <tt>sdcl</tt> expects the policy section to be the <em>first</em> section it reads.
+That is why it has options to specify the policy file: it will read and process the
+contents of that file first, no matter what other arguments it is given.
+</p>
+
+<h5 id="default_service"> Default service </h5>
+
+<p>
+ The <tt>default_service</tt> section looks like a regular <tt>service</tt>, but
+provides defaults that will be inherited by <em>all</em> the services. It can
+include a <tt>logging</tt> subsection (or several, but this is rare) and even a
+<tt>dependencies</tt> one,
+although it is not recommended to have many dependencies by default.
+</p>
+
+<h5 id="variables"> Variables </h5>
+
+<p>
+ The <tt>variables</tt> section defines variables that can be reused in the context
+where this section is defined.
+</p>
+
+<ul>
+ <li> There can be a unique global <tt>variables</tt> section. </li>
+ <li> A local <tt>variables</tt> section will define variables that will only
+apply to the section it is local to. </li>
+ <li> Yes, it is possible to nest a <tt>variables</tt> section with itself.
+It is, however, probably not a good idea. </li>
+</ul>
+
+<h5 id="service"> Service </h5>
+
+<p>
+ The <tt>service</tt> sections are the bread and butter of SDCL. This is where
+services are defined. These sections are meant to be written by
+<em>package maintainers</em> and provided in distribution packages, independently
+from any policy. When installing a package, the package manager can invoke
+<tt>sdcl</tt> on the SDCL file containing a <tt>service</tt> section; <tt>sdcl</tt>
+pairs it with the local policy file and can instantly output the service files for
+the local service manager.
+</p>
+
+<p>
+ A <tt>service</tt> section can embed a local <tt>variables</tt> section, but it is not
+mandatory. Same with a local <tt>dependencies</tt> section.
+</p>
+
+<h5 id="logging"> Logging </h5>
+
+<p>
+ A <tt>logging</tt> section can only appear in a <tt>default_service</tt> or
+<tt>service</tt> section. It is local to a service, and unique to it. As the
+name implies, it describes the parameters of a logger for this service.
+Several loggers (in order to log separate streams) can be defined by having
+several <tt>logging</tt> sections for the same service. This can be useful
+for services such as certain web servers that have separate <em>access</em>
+and <em>error</em> logs; but most services will only have one logger.
+</p>
+
+<h5 id="dependencies"> Dependencies </h5>
+
+<p>
+ A <tt>dependencies</tt> section can only appear in a <tt>default_service</tt> or
+<tt>service</tt> section. It is local to a service, and unique to it. As the name
+implies, it holds dependency information for the service.
+</p>
+
+<h4 id="directive"> Directive </h4>
+
+<p>
+ Where sections are the structure of an SDCL file, directives are its contents.
+A directive is the fundamental declarative element of SDCL, assigning a value to a property.
+</p>
+
+<ul>
+ <li> Directives appear in every section. </li>
+ <li> There is always <em>one directive per line</em>. (Per <em>logical</em> line. Escaping newline
+characters is the way to write a directive over multiple physical lines.) </li>
+ <li> Most directives take the form of a simple assignment: <tt>key=value</tt>. But this
+is not always the case: in <tt>dependencies</tt> sections, directives use a different
+syntax.
+  <ul>
+   <li> Whitespace is permitted in directives: <tt>key = value</tt> is the same as <tt>key=value</tt>.
+The start of <em>value</em> is the first non-whitespace character. <tt>value</tt> can start with
+whitespace if it is quoted: <tt>key=" something"</tt>. </li>
+  </ul> </li>
+</ul>
+
+<h3 id="list_of_directives"> List of available directives </h3>
+
+<h4 id="directives_variables"> Directives for the <tt>variables</tt> section </h4>
+
+<p>
+ The <tt>variables</tt> section is a list of variable assignments. Every directive
+in this section is an assignment of the form <tt>var=value</tt>. Later directives in the
+<tt>variables</tt> section itself and the scope right outside of it can evaluate
+a variable with <tt>$var</tt> or <tt>${var}</tt>.
+</p>
+
+<p>
+ Example:
+</p>
+
+<pre>
+service foobar {
+  variables {
+    rootdir=/opt/foobar
+    bindir=/bin
+    rootbindir=${rootdir}${bindir}
+  }
+  start=${rootbindir}/foobar
+}
+</pre>
+
+<h4 id="directives_policy"> Directives for the <tt>policy</tt> section </h4>
+
+<p>
+ They all take the <tt>key = value</tt> form. The valid keys are:
+</p>
+
+<dl>
+ <dt> <tt>version</tt> </dt>
+ <dd> The version of SDCL that the files are written in. The number is not
+expected to change often. </dd>
+
+ <dt> <tt>basedir</tt> </dt>
+ <dd> The place in the filesystem where the scripts and data produced by
+<tt>sdcl</tt> are stored. </dd>
+
+ <dt> TODO </dt>
+ <dd> </dd>
+</dl>
+
+<h4 id="directives_service"> Directives for the <tt>service</tt> section </h4>
+
+<dl>
+ <dt> <tt>type</tt> </dt>
+ <dd> The type of service: <tt>longrun</tt> for a long-lived process (daemon),
+oneshot for a short-lived process (that changes the machine state persistently),
+TODO: maybe others? <tt>longrun</tt> is the default, it is not expected from
+many packages to ship oneshots. </dd>
+
+ <dt> <tt>start</tt> </dt>
+ <dd> The command line that starts the service. </dd>
+
+ <dt> <tt>stop</tt> </dt>
+ <dd> For a oneshot: the command line that stops the service. For a longrun:
+either <tt>signal <em>sig</em></tt> or <tt>command <em>stopcommand</em></tt>,
+which should kill the process. If unspecified, which should be the case for a
+majority of services, the default is <tt>signal SIGTERM</tt>. </dd>
+
+ <dt> <tt>notify</tt> </dt>
+ <dd> The notification mechanism: either <tt>fd <em>notif</em></tt> for the
+<a href="https://skarnet.org/software/s6/notifywhenup.html">s6 notification
+protocol</a>, or <tt>socket</tt> for the
+<a href="https://www.freedesktop.org/software/systemd/man/latest/sd_notify.html">systemd
+notification protocol</a>. </dd>
+
+ <dt> <tt>directory</tt> </dt>
+ <dd> The directory to chdir to before starting the service. </dd>
+
+ <dt> <tt>chroot</tt> </dt>
+ <dd> The directory to chroot to before starting the service. </dd>
+
+ <dt> <tt>umask</tt> </dt>
+ <dd> The umask used for the service's process hierarchy. </dd>
+
+ <dt> <tt>user</tt> </dt>
+ <dd> A user name to change uids to before running the service. </dd>
+
+ <dt> <tt>group</tt> </dt>
+ <dd> A group name to change gids to before running the service. </dd>
+
+ <dt> <tt>readiness_timeout</tt> </dt>
+ <dd> A timeout (in milliseconds) after which a service that isn't ready yet
+is considered failed. </dd>
+
+ <dt> <tt>death_timeout</tt> </dt>
+ <dd> A timeout (in milliseconds) that starts when the <tt>stop</tt> signal
+is sent (or the <tt>stop</tt> command is run). If the service still isn't
+down after the specified duration, a SIGKILL is sent to the process (for
+a longrun) or the transition is considered failed (for a oneshot). </dd>
+
+ <dt> <tt>cleanup</tt> </dt>
+ <dd> A command to run <em>every time</em> the service dies, even if it is restarted. </dd>
+
+ <dt> <tt>start_pre</tt> </dt>
+ <dd> A command to run <em>once</em> before <tt>start</tt>. </dd>
+
+ <dt> <tt>start_post</tt> </dt>
+ <dd> A command to run <em>once</em> after the service is ready. </dd>
+
+ <dt> <tt>stop_pre</tt> </dt>
+ <dd> A command to run <em>once</em> before the service is brought down. </dd>
+
+ <dt> <tt>stop_post</tt> </dt>
+ <dd> A command to run <em>once</em> after the service is brought down. </dd>
+
+ <dt> TODO </dt>
+ <dd> Other process state change directives and fine control over service
+parameters will appear here. It feels important to avoid multiplying
+extra-specific, complex directives, in order to avoid ending up like the
+<a href="https://www.man7.org/linux/man-pages/man5/systemd.service.5.html">systemd
+unit file format</a>. </dd>
+
+</dl>
+
+<h4 id="directives_logging"> Directives for the <tt>logging</tt> section </h4>
+
+<dl>
+ <dt> <tt>stream</tt> </dt>
+ <dd> The data stream that is logged. The value is a comma-separated list of file descriptors;
+<tt>stdout</tt> is an alias for <tt>1</tt> and <tt>stderr</tt> is an alias
+for <tt>2</tt>. The output from the listed file descriptors will all be
+handled by the same logger. </dd>
+
+ <dt> TODO </dt>
+ <dd> Other directives depend on the functionality of the available loggers: what would
+be reasonable to standardize and expect from a service manager? Currently only s6's
+<a href="https://www.skarnet.org/software/s6/s6-log.html">s6-log</a> provides automatic
+rotation with configurable parameters, and OpenRC's
+logger is being worked on to achieve something similar.
+Other service managers log to... files? syslog? <tt>/dev/null</tt>? journald?
+There are a lot of needed improvements in this area. </dd>
+</dl>
+
+<h4 id="directives_dependencies"> Directives for the <tt>dependencies</tt> section </h4>
+
+<p>
+ <tt>dependencies</tt> directives have a slightly different syntax. They are of the
+form: <tt><em>name</em> : <em>deptype</em></tt>, with mandatory whitespace around the colon, where
+<em>name</em> is the name of the service being declared as a dependency, and
+<em>deptype</em> is the type of dependency being set up. <em>deptype</em> is one of:
+</p>
+
+<dl>
+ <dt> <tt>needed</tt> </dt>
+ <dd> The "hard" form of a dependency: if A is <tt>needed</tt> for B, then B will only
+be started when A is up and ready, and B will be stopped before A is stopped. </dd>
+
+ <dt> <tt>TODO</tt> </dt>
+ <dd> The other types of dependencies need to be precisely separated because service managers
+all have their kinds of "softer" or "optional" dependencies. The specification will be
+completed and updated as the implementation progresses. </dd>
+</dl>
+
+<h2 id="unspecified"> Yet-unspecified features </h2>
+
+<p>
+ These are features that are not specified in this draft yet because they require
+more study to be adequately or satisfyingly represented.
+</p>
+
+<ul>
+ <li> Instanced service support. Instances are generally a vague, badly defined term:
+it can mean subtly different things in different service managers, and existing support
+is sparse at best. </li>
+ <li> Linux-specific features such as cgroups and namespaces. It would be good to
+be able to standardize some kinds of service isolation, but it would be even better
+to do that in an OS-agnostic way, without following the Linux terminology or isolation
+architecture, in order to preserve maximal sdcl portability. </li>
+</ul>
+
+<h2 id="example"> Example </h2>
+
+<p>
+ Here is an example of an <em>aggregated</em> SDCL file, what the <tt>sdcl</tt> tool
+could see as its input. In reality, these sections would probably be split into
+several SDCL files, but we're showing them all at once.
+</p>
+
+<pre>
+policy {
+  version = 0.0
+  basedir = /etc/sdcl
+}
+
+default_service {
+  stop = signal SIGTERM
+  notify = fd 3
+
+  logging {
+    stream = stdout, stderr
+  }
+}
+
+service foobar {
+  name="foobar"  # redundant, optional, needs to match the service name if given
+  start="foobard --notification-fd=3 --foreground"
+  user="foobar"
+  directory="/var/run/foobar"
+
+  dependencies {
+    network : needed
+    bazqux : needed
+    corge : optional
+    grault : optional
+  }
+}
+</pre>
+
+<h2 id="grammar"> Grammar </h2>
+
+<p>
+ Since the implementation can (and will) inform the specification,
+the grammar of the SDCL language will be formalized when the first
+implementation of the SDCL parser is complete. The list of supported
+directives will also be completed as the implementation advances;
+it is likely that this document will remain a skeleton and the full
+directive list will appear in another part of the documentation
+(such as a man page).
+</p>
+
+</body>
+</html>

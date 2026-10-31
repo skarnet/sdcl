@@ -1,0 +1,5 @@
+sdcl			0755
+sdcl-preprocess		0755
+sdcl-openrc		0755
+sdcl-s6			0755
+sdcl-systemd		0755

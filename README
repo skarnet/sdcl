@@ -1,0 +1,28 @@
+sdcl - a service definition configuration language
+--------------------------------------------------
+
+ sdcl is a text file format that abstracts service definitions
+for various service managers such as OpenRC, s6-rc, or systemd.
+The sdcl package provides tools to convert files from the sdcl
+format to the native formats of all supported service managers.
+
+ The goal is to provide a unified format for service definition,
+in order for distributions to be able to offer a choice of
+service managers without extra packaging or maintenance work.
+
+ See https://skarnet.org/software/sdcl/ for details.
+
+
+* Installation
+  ------------
+
+ See the INSTALL file.
+
+
+* Contact information
+  -------------------
+
+ Laurent Bercot <ska-supervision at skarnet.org>
+
+ Please use the <supervision at list.skarnet.org> mailing-list for
+questions about sdcl.
